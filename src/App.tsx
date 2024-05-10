@@ -1,8 +1,8 @@
 import { Environment, Gltf, OrbitControls, PerformanceMonitor, StatsGl } from '@react-three/drei';
 import { Canvas } from '@react-three/fiber';
 import './App.css';
-import { Box } from './Box';
 import { Leva, useControls } from 'leva';
+import SplatRenderer from './SplatRenderer';
 
 /**
  * Overall App Planning
@@ -18,11 +18,10 @@ import { Leva, useControls } from 'leva';
 function App() {
   return (
     <>
-      <Canvas className="h-full w-full bg-black" gl={{antialias:false}}>
+      <SplatRenderer url={"0.0.0.0:8000//src/output.splat"} upload={true} />
+      <Canvas className="h-full w-full bg-black" gl={{ antialias: false }}>
         <OrbitControls />
         <ambientLight intensity={1} color="white" />
-        <Box position={[-1, 0, 0]} />
-        <Box position={[1, 0, 0]} />
       </Canvas>
     </>
   );
