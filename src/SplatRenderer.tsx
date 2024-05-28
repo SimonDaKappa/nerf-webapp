@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { fragmentShaderSource, vertexShaderSource } from './SplatShaders';
-import SortWorker from './SortWorker';
+// import SortWorker from './SortWorker';
 
 /* 
 3 Float32 for Position (x, y, z) 
@@ -83,7 +83,7 @@ function SplatRenderer(props: { url: string; upload: boolean }) {
 
   const meshRef = useRef<THREE.Mesh>(null!);
   // Create new worker
-  const [worker] = useState(() => new SortWorker());
+  const [worker] = useState(() => new Worker("./SortWorker.ts"));
 
   // Create screen listener
   const {
@@ -143,7 +143,7 @@ function SplatRenderer(props: { url: string; upload: boolean }) {
     }
   });
 
-  // Post message to Sort Worker: Sort occurs on view change
+  // Post message (current view) to Sort Worker. Sort occurs on view change.
   useFrame((state, _delta, _frame) => {
     const mesh = meshRef.current;
     if (mesh == null) {
@@ -163,7 +163,9 @@ function SplatRenderer(props: { url: string; upload: boolean }) {
 
   // Handle messages from Sort Worker: Update Buffers
   useEffect(() => {
-    worker.onmessage = (e: { data: { quat: any; scale: any; center: any; color: any; }; }) => {
+    worker.onmessage = (e: {
+      data: { quat: any; scale: any; center: any; color: any };
+    }) => {
       const { quat, scale, center, color } = e.data;
       setBuffers((buffers) => ({ ...buffers, center, scale, color, quat }));
     };

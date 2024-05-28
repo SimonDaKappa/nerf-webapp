@@ -1,6 +1,6 @@
 /* eslint-disable no-restricted-globals */
 /// <reference lib="WebWorker" />
-const ctx: Worker = self as any;
+// const ctx: Worker = self as any;
 
 type viewProjectionMatrix = number[];
 let viewProj: viewProjectionMatrix;
@@ -51,19 +51,21 @@ const depthSort = (view: viewProjectionMatrix) => {
   }
   // Depth buffer correct, check angle between lastProj and viewProj
   else {
-    let viewDifference =
+    let viewDifferenceDot =
       lastProj[2] * viewProj[2] +
       lastProj[6] * viewProj[6] +
       lastProj[10] * viewProj[10];
-    if (Math.abs(viewDifference - 1) < 0.01)
+    if (Math.abs(viewDifferenceDot - 1) < 0.01)
       // Very small angle change, assume nonimportant change in depthBuffer
+      // and thus minimal change in visible transparent object orderings
       return;
   }
 
   const projectedDepthBuffer = new Float32Array(depthBuffer.buffer);
   const indexBuffer = new Uint32Array(depthBuffer.buffer);
 
-  // Iterate over each splat and compute the projected depth
+  // Iterate over each splat and compute the projected depth (z value in view space)
+  // Note: that we subtract depth from large value to have non-negative depth
   for (let i = 0; i < numVertex; i++) {
     let splatIdx = indexBuffer[2 * i];
     projectedDepthBuffer[2 * i + 1] =
@@ -84,6 +86,7 @@ const depthSort = (view: viewProjectionMatrix) => {
   // Reorder the splats based on the sorted depth buffer
   for (let i = 0; i < numVertex; i++) {
     let splatIdx = indexBuffer[2 * i];
+
     // Update Position
     center[3 * i + 0] = fBuffer[8 * splatIdx + 0];
     center[3 * i + 1] = fBuffer[8 * splatIdx + 1];
@@ -107,7 +110,8 @@ const depthSort = (view: viewProjectionMatrix) => {
     quat[4 * i + 3] = (uBuffer[32 * splatIdx + 28 + 3] - 128) / 128;
   }
 
-  ctx.postMessage({ center, scale, color, quat, viewProj }, [
+  // Post the sorted data back to the main thread
+  self.postMessage({ center, scale, color, quat, viewProj }, [
     center.buffer,
     scale.buffer,
     color.buffer,
@@ -130,18 +134,18 @@ const sortRunner = () => {
   }
 };
 
-ctx.onmessage = (e) => {
+self.onmessage = (e) => {
   /* Currently 2 Types of messages to handle
-   * 1. Receive new splat data buffer (new scene)
-   * 2. Receive updated camera pose (new frame)
+   * 1. Receive new splat data buffer (new scene loaded)
+   * 2. Receive updated camera pose (new frame / changed view)
    */
   if (e.data.buffer) {
-    // Update Scence
+    // Update Scene
     buffer = e.data.buffer;
     numVertex = e.data.numVertex;
     console.log('Received new buffer');
   } else if (e.data.view) {
-    // Change view
+    // Load View
     viewProj = e.data.view;
     numVertex = e.data.numVertex;
     console.log('Received new view');
@@ -149,4 +153,4 @@ ctx.onmessage = (e) => {
   }
 };
 
-export default ctx;
+// export default ctx;
