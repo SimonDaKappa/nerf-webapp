@@ -25,7 +25,10 @@ function App() {
   return (
     <>
       <Canvas className="h-full w-full bg-black" gl={{ antialias: false }}>
-        <SplatRenderer url={'0.0.0.0:8000//src/output.splat'} upload={true} />
+        <SplatRenderer
+          url={'http://127.0.0.1:8000/output.splat'}
+          upload={true}
+        />
         <OrbitControls />
         <ambientLight intensity={1} color="white" />
       </Canvas>

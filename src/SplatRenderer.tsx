@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { fragmentShaderSource, vertexShaderSource } from './SplatShaders';
-// import SortWorker from './SortWorker';
+import SortWorker from './SortWorker.worker';
 
 /* 
 3 Float32 for Position (x, y, z) 
@@ -24,13 +24,25 @@ function logLoadedSplat(splatBuffer: Uint8Array): void {
 
 async function fetchSplatFile(url: string): Promise<Response> {
   try {
-    const splatReq = await fetch(url, { method: 'GET' });
+    const splatReq = await fetch(url, { mode: 'cors', method: 'GET' });
     if (
       splatReq.status !== 200 ||
-      splatReq.body == null ||
-      splatReq.headers == null ||
-      splatReq.headers.get('content-length') == null
+      splatReq.body === null ||
+      splatReq.headers === null ||
+      splatReq.headers.get('content-length') === null
     ) {
+      console.log(
+        'Error fetching splat file from URL: ' +
+          url +
+          ' with status: ' +
+          splatReq.status +
+          ' and body: ' +
+          splatReq.body +
+          ' and headers: ' +
+          splatReq.headers +
+          ' and content-length: ' +
+          splatReq.headers.get('content-length')
+      );
       throw new Error(splatReq.status + ' Unable to load ' + splatReq.url);
     }
     return splatReq;
@@ -83,7 +95,15 @@ function SplatRenderer(props: { url: string; upload: boolean }) {
 
   const meshRef = useRef<THREE.Mesh>(null!);
   // Create new worker
-  const [worker] = useState(() => new Worker("./SortWorker.ts"));
+  // const [worker] = useState(() => new Worker('./SortWorker.worker.ts'));
+  // const [worker] = useState(() => new SortWorker.default());
+  const [worker] = useState(() => {
+    const workerInstance = new Worker(
+      new URL('./SortWorker.worker', import.meta.url)
+    );
+    SortWorker.call(workerInstance);
+    return workerInstance;
+  });
 
   // Create screen listener
   const {
@@ -134,10 +154,11 @@ function SplatRenderer(props: { url: string; upload: boolean }) {
       const loadSplatData = async () => {
         const splatBuffer = await loadSplatFile(url);
         upload = false;
+        console.log("Main: Sending new buffer of array: %s \nto worker", splatBuffer);
         worker.postMessage({
           buffer: splatBuffer.buffer,
           numVertex: Math.floor(splatBuffer.length / rowLength),
-        });
+        }, [splatBuffer.buffer]);
       };
       loadSplatData();
     }
@@ -156,7 +177,7 @@ function SplatRenderer(props: { url: string; upload: boolean }) {
       .multiply(camera.matrixWorldInverse)
       .multiply(mesh.matrixWorld);
     worker.postMessage({
-      view: viewProj.elements,
+      view: Array.from(viewProj.elements),
       numVertex: buffers.center.length / 3,
     });
   });
@@ -168,6 +189,7 @@ function SplatRenderer(props: { url: string; upload: boolean }) {
     }) => {
       const { quat, scale, center, color } = e.data;
       setBuffers((buffers) => ({ ...buffers, center, scale, color, quat }));
+      console.log("Received new buffer from worker");
     };
     // Cleanup
     return () => {
