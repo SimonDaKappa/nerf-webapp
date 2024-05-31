@@ -1,13 +1,13 @@
 import {
-  Environment,
-  Gltf,
-  OrbitControls,
-  PerformanceMonitor,
-  StatsGl,
+  //Environment,
+  //Gltf,
+  OrbitControls//,
+  //PerformanceMonitor,
+  //StatsGl,
 } from '@react-three/drei';
 import { Canvas } from '@react-three/fiber';
 import './App.css';
-import { Leva, useControls } from 'leva';
+// import { Leva, useControls } from 'leva';
 import SplatRenderer from './SplatRenderer';
 
 /**

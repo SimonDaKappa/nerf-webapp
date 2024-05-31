@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+/* File: SplatRenderer.tsx */
+
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { fragmentShaderSource, vertexShaderSource } from './SplatShaders';
@@ -70,6 +72,7 @@ async function loadSplatFile(url: string): Promise<Uint8Array> {
     // TODO: Add incremental message posting to sort worker
   }
 
+  console.log("Main: loadSplatFile() fin. splatData: %s", splatData);
   logLoadedSplat(splatData);
   return splatData;
 }
@@ -90,20 +93,21 @@ function FocalLength(
 
 function SplatRenderer(props: { url: string; upload: boolean }) {
   const url = props.url;
-  let upload = props.upload;
+  const [upload, setUpload] = useState(props.upload);
   console.log('URL: %s', url);
 
   const meshRef = useRef<THREE.Mesh>(null!);
   // Create new worker
   // const [worker] = useState(() => new Worker('./SortWorker.worker.ts'));
   // const [worker] = useState(() => new SortWorker.default());
-  const [worker] = useState(() => {
-    const workerInstance = new Worker(
-      new URL('./SortWorker.worker', import.meta.url)
-    );
-    SortWorker.call(workerInstance);
-    return workerInstance;
-  });
+  // const [worker] = useState(() => {
+  //   const workerInstance = new Worker(
+  //     new URL('./SortWorker.worker', import.meta.url)
+  //   );
+  //   SortWorker.call(workerInstance);
+  //   return workerInstance;
+  // });
+  const worker = useMemo(() => new Worker(new URL("./SortWorker.worker", import.meta.url)), []);
 
   // Create screen listener
   const {
@@ -147,39 +151,44 @@ function SplatRenderer(props: { url: string; upload: boolean }) {
     center: new Float32Array([0, 0, 0, 2, 0, 0]),
   });
 
+
   // Load Splat File: User uploads new scene, load new splat file and send scene to worker
   useEffect(() => {
-    let upload = props.upload;
     if (upload) {
       const loadSplatData = async () => {
         const splatBuffer = await loadSplatFile(url);
-        upload = false;
-        console.log("Main: Sending new buffer of array: %s \nto worker", splatBuffer);
+        console.log("Main: SplatRenderer() Sending new buffer of array: %s \nto worker", splatBuffer);
         worker.postMessage({
           buffer: splatBuffer.buffer,
           numVertex: Math.floor(splatBuffer.length / rowLength),
         }, [splatBuffer.buffer]);
       };
+      setUpload(false);
       loadSplatData();
     }
-  });
+  }, [setUpload, upload, url, worker]);
 
   // Post message (current view) to Sort Worker. Sort occurs on view change.
+
+  const [testFrame, setTestFrame] = useState(true);
   useFrame((state, _delta, _frame) => {
     const mesh = meshRef.current;
     if (mesh == null) {
       return;
     }
-
+    
     const camera = state.camera;
     const viewProj = new THREE.Matrix4()
       .multiply(camera.projectionMatrix)
       .multiply(camera.matrixWorldInverse)
       .multiply(mesh.matrixWorld);
-    worker.postMessage({
-      view: Array.from(viewProj.elements),
-      numVertex: buffers.center.length / 3,
-    });
+    if (testFrame) {
+      worker.postMessage({
+        view: Array.from(viewProj.elements),
+        numVertex: buffers.center.length / 3,
+      });
+    }
+    setTestFrame(false);
   });
 
   // Handle messages from Sort Worker: Update Buffers
