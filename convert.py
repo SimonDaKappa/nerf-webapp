@@ -1,13 +1,13 @@
-# You can use this to convert a .ply file to a .splat file programmatically in python
-# Alternatively you can drag and drop a .ply file into the viewer at https://antimatter15.com/splat
+# You can use this to convert a .ply file to a ("compressed") .splat file
 
 from plyfile import PlyData
 import numpy as np
 import argparse
 from io import BytesIO
+from sys import maxsize
 
 
-def process_ply_to_splat(ply_file_path):
+def process_ply_to_splat(ply_file_path, num_splats, verbose=True):
     plydata = PlyData.read(ply_file_path)
     vert = plydata["vertex"]
     sorted_indices = np.argsort(
@@ -15,7 +15,7 @@ def process_ply_to_splat(ply_file_path):
         / (1 + np.exp(-vert["opacity"]))
     )
     buffer = BytesIO()
-    count = 0
+    num_converted = 0
     for idx in sorted_indices:
         v = plydata["vertex"][idx]
         position = np.array([v["x"], v["y"], v["z"]], dtype=np.float32)
@@ -47,11 +47,15 @@ def process_ply_to_splat(ply_file_path):
             .astype(np.uint8)
             .tobytes()
         )
-        # print(count)
-        count += 1
-        if count == 1:
+
+        if verbose and num_converted % 1000 == 0:
+            print(f"Converted {num_converted} splats", end="\r")
+            
+        num_converted += 1
+        if num_splats != 0 and num_converted == num_splats:
             break
 
+    print(f"Converted {num_converted} splats", end="\r")
     return buffer.getvalue()
 
 
@@ -69,10 +73,13 @@ def main():
     parser.add_argument(
         "--output", "-o", default="output.splat", help="The output SPLAT file."
     )
+    parser.add_argument(
+        "--num_splats", "-n" , type=int, default=0, help="The number of splats to convert."
+    )
     args = parser.parse_args()
     for input_file in args.input_files:
         print(f"Processing {input_file}...")
-        splat_data = process_ply_to_splat(input_file)
+        splat_data = process_ply_to_splat(input_file, args.num_splats)
         output_file = (
             args.output if len(
                 args.input_files) == 1 else input_file + ".splat"

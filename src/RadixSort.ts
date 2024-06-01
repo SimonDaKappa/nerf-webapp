@@ -214,3 +214,37 @@ function radixSortFloat32(input: Float32Array) {
 
   return input;
 }
+
+const newRadixSortFloat32 = (arr: Float32Array) => {
+  const getRadixKey = (value: number, pos: number): number => {
+    const floatView = new Float32Array(1);
+    const intView = new Uint32Array(floatView.buffer);
+    floatView[0] = value;
+    return (intView[0] >>> (pos * 8)) & 0xff;
+  };
+
+  const numElements = arr.length;
+  const aux = new Float32Array(numElements);
+
+  for (let pos = 0; pos < 4; pos++) {
+    const count: number[] = new Array(256).fill(0);
+
+    for (let i = 0; i < numElements; i++) {
+      const radixKey = getRadixKey(arr[i], pos);
+      count[radixKey]++;
+    }
+
+    for (let i = 1; i < 256; i++) {
+      count[i] += count[i - 1];
+    }
+
+    for (let i = numElements - 1; i >= 0; i--) {
+      const radixKey = getRadixKey(arr[i], pos);
+      aux[--count[radixKey]] = arr[i];
+    }
+
+    arr.set(aux);
+  }
+};
+
+export { newRadixSortFloat32, radixSortUint32, radixSortBigUint64, radixSortInt32, radixSortBigInt64, radixSortFloat32 };

@@ -19,21 +19,10 @@ let lastProj: viewProjectionMatrix = [];
 const depthSort = (view: viewProjectionMatrix) => {
   viewProj = view;
   if (!buffer) {
-    console.log('Worker: depthSort(). Buffer not loaded yet');
     return;
   }
 
-  const startTime: number = Date.now();
   numVertex = buffer.byteLength / rowLength;
-  /* Data is stored in the buffer as follows:
-   * 3 Float32 for Position (x, y, z)
-   * 3 Float32 for Scale (x, y, z)
-   * 4 Uint8 for Color (r, g, b, alpha)
-   * 4 Uint8 for Quat (a, b, c, d)
-   *
-   * We need to unpack the buffer into a depth buffer for radix sort
-   * Using the view projection matrix, we can sort the splats based off of their depth
-   */
 
   // Accessing the buffer based on types
   const fBuffer = new Float32Array(buffer);
@@ -45,8 +34,7 @@ const depthSort = (view: viewProjectionMatrix) => {
   const color = new Float32Array(numVertex * 4);
   const quat = new Float32Array(numVertex * 4);
 
-  // If the depth buffer is not the same size as the number of
-  // vertices, resize it (and indexBuffers)
+  // Resize depthBuffer if necessary
   if (depthBuffer.length !== numVertex) {
     depthBuffer = new BigInt64Array(numVertex);
     const indexBuffer = new Uint32Array(depthBuffer.buffer);
@@ -54,6 +42,7 @@ const depthSort = (view: viewProjectionMatrix) => {
       indexBuffer[2 * i] = i;
     }
   }
+
   // Depth buffer correct, check angle between lastProj and viewProj
   else {
     let viewDifferenceDot =
@@ -61,17 +50,16 @@ const depthSort = (view: viewProjectionMatrix) => {
       lastProj[6] * viewProj[6] +
       lastProj[10] * viewProj[10];
     if (Math.abs(viewDifferenceDot - 1) < 0.01)
-      // Very small angle change, assume nonimportant change in depthBuffer
-      // and thus minimal change in visible transparent object orderings
+      // Very small angle change, assume nonimportant change in projected
+      // depths and thus no need to recompute transparency orderings
       return;
   }
 
   const projectedDepthBuffer = new Float32Array(depthBuffer.buffer);
   const indexBuffer = new Uint32Array(depthBuffer.buffer);
-  console.log('Worker: depthSort(). Buffer loaded. Sorting now');
 
-  // Iterate over each splat and compute the projected depth (z value in view space)
-  // Note: that we subtract depth from large value to have non-negative depth
+  // Iterate over each splat and compute the projected depth
+  // Note: subtract depth from large value to have non-negative depth
   for (let i = 0; i < numVertex; i++) {
     let splatIdx = indexBuffer[2 * i];
     projectedDepthBuffer[2 * i + 1] =
@@ -81,16 +69,13 @@ const depthSort = (view: viewProjectionMatrix) => {
         viewProj[10] * fBuffer[8 * splatIdx + 2]);
   }
 
-  const projDepthTime: number = Date.now();
 
   // Update old view to current view
   lastProj = viewProj;
 
   // Sort the depth buffer
+  // TODO: Figure out how to do WebGPU Bitonic sort or CPU Radix Sort
   depthBuffer.sort();
-  console.log("Worker: depthSort(). Sorted buffer of length: %s", depthBuffer.length);
-  // TODO: Use radix sort to sort the depth buffer
-  // radixSortBigInt64(depthBuffer);
 
   // Reorder the splats based on the sorted depth buffer
   for (let i = 0; i < numVertex; i++) {
@@ -119,10 +104,6 @@ const depthSort = (view: viewProjectionMatrix) => {
     quat[4 * i + 3] = (uBuffer[32 * splatIdx + 28 + 3] - 128) / 128;
   }
 
-  const endTime: number = Date.now();
-
-  console.log('Worker: depthSort(). Time to project depth: %s, Time to sort and reorder: %s, Time total: %s\nPosting to Main thread', projDepthTime - startTime, endTime - projDepthTime, endTime - startTime);
-
   // Post the depth-sorted data back to the main thread
   self.postMessage({ center, scale, color, quat, viewProj }, [
     center.buffer,
@@ -133,7 +114,7 @@ const depthSort = (view: viewProjectionMatrix) => {
 };
 
 /**
- * Runs the sort as long as view is sufficiently different
+ * Attempts to run depth sort as long as new viewProj is received
  */
 let sortRunning: boolean = false;
 const sortRunner = () => {
@@ -148,48 +129,18 @@ const sortRunner = () => {
   }
 };
 
-// const inspectMessage = (e) => {
-//   let output: String = '';
-//   output += 'Received message: keys: ' + Object.keys(e.data) + '\n';
-//   Object.keys(e.data).forEach((key) => {
-//     output += 'Key ' + key + ', payload: ' + e.data[key] + '\n';
-//     output += 'Keys in ' + key + ':\n';
-//     if (typeof e.data[key] === 'object') {
-//       Object.keys(e.data[key]).forEach((key2) => {
-//         output += key2 + ': ' + e.data[key][key2] + '\n';
-//       });
-//     }
-//   });
-//   console.log(output);
-// };
-
 /**
  * Handle incoming messages from the main thread
  */
 self.onmessage = (e) => {
-  /* Currently 2 Types of messages to handle
-   * 1. Receive new splat data buffer (new scene loaded)
-   * 2. Receive updated camera pose (new frame / changed view)
-   */
-  console.log('Worker: RCVD message. e.data: %s', e.data);
-  // console.log('Worker: Inspecting data: ' + JSON.stringify(e.data, null, 4));
-  // inspectMessage(e);
   if (e.data.buffer) {
     // Update Scene
-    console.log(
-      'Worker: RCVD buffer type: %s, numVertex: %s',
-      typeof e.data.buffer,
-      e.data.numVertex
-    );
     buffer = e.data.buffer.buffer;
     numVertex = e.data.numVertex;
-    sortRunner();
   } else if (e.data.view) {
-  /* TODO: change sort to view update, not buffer update. For wip testings */
-  // // Load View
+    // Load View
     viewProj = e.data.view;
     numVertex = e.data.numVertex;
-    console.log('Worker: Received new view');
-  //   sortRunner();
+    sortRunner();
   }
 };
