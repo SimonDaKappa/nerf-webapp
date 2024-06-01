@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { fragmentShaderSource, vertexShaderSource } from './SplatShaders';
-import SortWorker from './SortWorker.worker';
+import { rgbToNearestCommonColor } from './ColorMap';
+// import SortWorker from './SortWorker.worker';
 
 /* 
 3 Float32 for Position (x, y, z) 
@@ -72,7 +73,8 @@ async function loadSplatFile(url: string): Promise<Uint8Array> {
     // TODO: Add incremental message posting to sort worker
   }
 
-  console.log("Main: loadSplatFile() fin. splatData: %s", splatData);
+  // console.log("Main: loadSplatFile() fin. splatData: %s", splatData);
+  console.log("Main: loadSplatFile() fin.");
   logLoadedSplat(splatData);
   return splatData;
 }
@@ -82,12 +84,12 @@ function FocalLength(
   height: number,
   fov: number,
   aspect: number,
-  damper: number
+  dpr: number
 ): THREE.Vector2 {
   const fovRadian = THREE.MathUtils.degToRad(fov);
   const fovXRadian = 2 * Math.atan(Math.tan(fovRadian / 2) * aspect);
-  const fy = (height * damper) / (2 * Math.tan(fovRadian / 2));
-  const fx = (width * damper) / (2 * Math.tan(fovXRadian / 2));
+  const fy = (height * dpr) / (2 * Math.tan(fovRadian / 2));
+  const fx = (width * dpr) / (2 * Math.tan(fovXRadian / 2));
   return new THREE.Vector2(fx, fy);
 }
 
@@ -113,31 +115,31 @@ function SplatRenderer(props: { url: string; upload: boolean }) {
   const {
     size: { width, height },
     camera: { fov, aspect },
-    viewport: { damper },
+    viewport: { dpr },
   } = useThree() as any;
 
   // Init uniforms for shaders
   const [screenUniforms] = useState({
     viewport: {
-      value: new THREE.Vector2(width * damper, height * damper),
+      value: new THREE.Vector2(width * dpr, height * dpr),
     },
     focal: {
-      value: FocalLength(width, height, fov, aspect, damper),
+      value: FocalLength(width, height, fov, aspect, dpr),
     },
   });
 
-  // Update uniforms for shaders when damper/screen changes
+  // Update uniforms for shaders when dpr/screen changes
   useEffect(() => {
     screenUniforms.focal.value = FocalLength(
       width,
       height,
       fov,
       aspect,
-      damper
+      dpr
     );
     screenUniforms.viewport.value = new THREE.Vector2(
-      width * damper,
-      height * damper
+      width * dpr,
+      height * dpr
     );
   });
 
@@ -157,11 +159,12 @@ function SplatRenderer(props: { url: string; upload: boolean }) {
     if (upload) {
       const loadSplatData = async () => {
         const splatBuffer = await loadSplatFile(url);
-        console.log("Main: SplatRenderer() Sending new buffer of array: %s \nto worker", splatBuffer);
+        // console.log("Main: SplatRenderer() Sending new buffer of array: %s \nto worker", splatBuffer);
+        console.log("Main: SplatRenderer() Sending new buffer of array to worker");
         worker.postMessage({
-          buffer: splatBuffer.buffer,
+          buffer: splatBuffer,
           numVertex: Math.floor(splatBuffer.length / rowLength),
-        }, [splatBuffer.buffer]);
+        });
       };
       setUpload(false);
       loadSplatData();
@@ -170,7 +173,7 @@ function SplatRenderer(props: { url: string; upload: boolean }) {
 
   // Post message (current view) to Sort Worker. Sort occurs on view change.
 
-  const [testFrame, setTestFrame] = useState(true);
+  const [framesLeft, setFramesLeft] = useState(1);
   useFrame((state, _delta, _frame) => {
     const mesh = meshRef.current;
     if (mesh == null) {
@@ -182,13 +185,13 @@ function SplatRenderer(props: { url: string; upload: boolean }) {
       .multiply(camera.projectionMatrix)
       .multiply(camera.matrixWorldInverse)
       .multiply(mesh.matrixWorld);
-    if (testFrame) {
+    if (framesLeft) {
       worker.postMessage({
         view: Array.from(viewProj.elements),
         numVertex: buffers.center.length / 3,
       });
     }
-    setTestFrame(false);
+    setFramesLeft(Math.max(0, framesLeft - 1));
   });
 
   // Handle messages from Sort Worker: Update Buffers
@@ -198,7 +201,7 @@ function SplatRenderer(props: { url: string; upload: boolean }) {
     }) => {
       const { quat, scale, center, color } = e.data;
       setBuffers((buffers) => ({ ...buffers, center, scale, color, quat }));
-      console.log("Received new buffer from worker");
+      console.log("Main: Updated sorted buffers from worker");
     };
     // Cleanup
     return () => {
@@ -216,7 +219,27 @@ function SplatRenderer(props: { url: string; upload: boolean }) {
 
   const instanceCount = Math.min(buffers.center.length / 3, 100000);
 
-  console.log('SplatRenderer Fin');
+  const inspectBuffers = () => {
+    console.log('Main: Inspecting buffers: %s', buffers);
+    console.log('Main: First two splats:');
+    for (let i = 0; i < 2; i++) {
+      const positionIndex = i * rowLength;
+      const x = buffers.center[positionIndex];
+      const y = buffers.center[positionIndex + 1];
+      const z = buffers.center[positionIndex + 2];
+      const r = buffers.color[i * 4];
+      const g = buffers.color[i * 4 + 1];
+      const b = buffers.color[i * 4 + 2];
+      const a = buffers.color[i * 4 + 3];
+      console.log(
+        `Main: Splat ${i + 1}: (${x}, ${y}, ${z}), color: (${rgbToNearestCommonColor(r,g,b)}, ${a})`
+      );
+    }
+  };
+
+  inspectBuffers();
+  console.log("Main: SplatRenderer() fin. instanceCount: %s\n ", instanceCount);
+
   return (
     <mesh ref={meshRef} renderOrder={10} rotation={[Math.PI, 0, 0]}>
       <instancedBufferGeometry

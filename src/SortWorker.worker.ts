@@ -23,6 +23,7 @@ const depthSort = (view: viewProjectionMatrix) => {
     return;
   }
 
+  const startTime: number = Date.now();
   numVertex = buffer.byteLength / rowLength;
   /* Data is stored in the buffer as follows:
    * 3 Float32 for Position (x, y, z)
@@ -43,8 +44,7 @@ const depthSort = (view: viewProjectionMatrix) => {
   const scale = new Float32Array(numVertex * 3);
   const color = new Float32Array(numVertex * 4);
   const quat = new Float32Array(numVertex * 4);
-  
-  
+
   // If the depth buffer is not the same size as the number of
   // vertices, resize it (and indexBuffers)
   if (depthBuffer.length !== numVertex) {
@@ -81,11 +81,14 @@ const depthSort = (view: viewProjectionMatrix) => {
         viewProj[10] * fBuffer[8 * splatIdx + 2]);
   }
 
+  const projDepthTime: number = Date.now();
+
   // Update old view to current view
   lastProj = viewProj;
 
   // Sort the depth buffer
   depthBuffer.sort();
+  console.log("Worker: depthSort(). Sorted buffer of length: %s", depthBuffer.length);
   // TODO: Use radix sort to sort the depth buffer
   // radixSortBigInt64(depthBuffer);
 
@@ -116,6 +119,10 @@ const depthSort = (view: viewProjectionMatrix) => {
     quat[4 * i + 3] = (uBuffer[32 * splatIdx + 28 + 3] - 128) / 128;
   }
 
+  const endTime: number = Date.now();
+
+  console.log('Worker: depthSort(). Time to project depth: %s, Time to sort and reorder: %s, Time total: %s\nPosting to Main thread', projDepthTime - startTime, endTime - projDepthTime, endTime - startTime);
+
   // Post the depth-sorted data back to the main thread
   self.postMessage({ center, scale, color, quat, viewProj }, [
     center.buffer,
@@ -123,7 +130,6 @@ const depthSort = (view: viewProjectionMatrix) => {
     color.buffer,
     quat.buffer,
   ]);
-  console.log('Sort complete');
 };
 
 /**
@@ -142,20 +148,20 @@ const sortRunner = () => {
   }
 };
 
-const inspectMessage = (e) => {
-  let output: String = '';
-  output += 'Received message: keys: ' + Object.keys(e.data) + '\n';
-  Object.keys(e.data).forEach((key) => {
-    output += 'Key ' + key + ', payload: ' + e.data[key] + '\n';
-    output += 'Keys in ' + key + ':\n';
-    if (typeof e.data[key] === 'object') {
-      Object.keys(e.data[key]).forEach((key2) => {
-        output += key2 + ': ' + e.data[key][key2] + '\n';
-      });
-    }
-  });
-  console.log(output);
-};
+// const inspectMessage = (e) => {
+//   let output: String = '';
+//   output += 'Received message: keys: ' + Object.keys(e.data) + '\n';
+//   Object.keys(e.data).forEach((key) => {
+//     output += 'Key ' + key + ', payload: ' + e.data[key] + '\n';
+//     output += 'Keys in ' + key + ':\n';
+//     if (typeof e.data[key] === 'object') {
+//       Object.keys(e.data[key]).forEach((key2) => {
+//         output += key2 + ': ' + e.data[key][key2] + '\n';
+//       });
+//     }
+//   });
+//   console.log(output);
+// };
 
 /**
  * Handle incoming messages from the main thread
@@ -166,19 +172,24 @@ self.onmessage = (e) => {
    * 2. Receive updated camera pose (new frame / changed view)
    */
   console.log('Worker: RCVD message. e.data: %s', e.data);
-  console.log('Inspecting data: ' + JSON.stringify(e.data, null, 4));
+  // console.log('Worker: Inspecting data: ' + JSON.stringify(e.data, null, 4));
   // inspectMessage(e);
   if (e.data.buffer) {
     // Update Scene
-    console.log("Worker: RCVD buffer type: %s, numVertex: %s", typeof e.data.buffer, e.data.numVertex)
-    buffer = e.data.buffer;
+    console.log(
+      'Worker: RCVD buffer type: %s, numVertex: %s',
+      typeof e.data.buffer,
+      e.data.numVertex
+    );
+    buffer = e.data.buffer.buffer;
     numVertex = e.data.numVertex;
-    console.log('Received new buffer');
+    sortRunner();
   } else if (e.data.view) {
-    // Load View
+  /* TODO: change sort to view update, not buffer update. For wip testings */
+  // // Load View
     viewProj = e.data.view;
     numVertex = e.data.numVertex;
-    console.log('Received new view');
-    sortRunner();
+    console.log('Worker: Received new view');
+  //   sortRunner();
   }
 };

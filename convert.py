@@ -47,9 +47,9 @@ def process_ply_to_splat(ply_file_path):
             .astype(np.uint8)
             .tobytes()
         )
-        print(count)
+        # print(count)
         count += 1
-        if count == 10:
+        if count == 1:
             break
 
     return buffer.getvalue()
