@@ -13,7 +13,7 @@ function App() {
         style={{ background: 'black', width: '100%', height: '100%' }}
       >
         <StatsGl />
-        <FlyControls movementSpeed={5} rollSpeed={0.5} />
+        <FlyControls movementSpeed={1.5} rollSpeed={0.5} />
         <group>
           <SplatMesh
             url={'http://127.0.01:8000/train.splat'}
